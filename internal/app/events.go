@@ -56,12 +56,14 @@ func drainProcessMetricsUpdate() {
 	case processes := <-processMetricsChan:
 		renderMutex.Lock()
 		if !isFrozen && !killPending {
+			selectedPID := processDetailsSelectionPID()
 			lastProcesses = processes
 			if searchText != "" {
 				refreshFilteredProcesses()
 			}
 			if !isPortsLayoutActive() {
 				updateProcessList()
+				restoreProcessDetailsSelection(selectedPID)
 			}
 		}
 		renderMutex.Unlock()
@@ -74,12 +76,14 @@ func drainPortMetricsUpdate() {
 	case ports := <-portMetricsChan:
 		renderMutex.Lock()
 		if !isFrozen && !killPending {
+			selectedPID := processDetailsSelectionPID()
 			lastPorts = ports
 			if searchText != "" || portsExternalOnly {
 				refreshFilteredPorts()
 			}
 			if isPortsLayoutActive() {
 				updatePortsList()
+				restoreProcessDetailsSelection(selectedPID)
 			}
 		}
 		renderMutex.Unlock()
@@ -348,7 +352,7 @@ func handleInfoFanScroll(direction int) {
 
 func handleGenericMouseEvent(e ui.Event) {
 	renderMutex.Lock()
-	if handleProcessDetailsKey(e.ID) {
+	if handleProcessDetailsMouse(e) {
 		drawScreen(GetCachedTerminalDimensions())
 		renderMutex.Unlock()
 		return

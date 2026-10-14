@@ -23,6 +23,9 @@ type processDetailsView struct {
 	offset    int
 	pageSize  int
 	textStyle ui.Style
+	pid       int
+	focused   bool
+	cancel    context.CancelFunc
 }
 
 var processDetails *processDetailsView
@@ -60,8 +63,8 @@ func quoteProcessArgument(argument string) string {
 	return "'" + strings.ReplaceAll(argument, "'", "'\"'\"'") + "'"
 }
 
-func processField(command string, arguments ...string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+func processField(parent context.Context, command string, arguments ...string) string {
+	ctx, cancel := context.WithTimeout(parent, 2*time.Second)
 	defer cancel()
 	output, err := exec.CommandContext(ctx, command, arguments...).Output()
 	if err != nil {
@@ -71,6 +74,10 @@ func processField(command string, arguments ...string) string {
 }
 
 func loadProcessDetails(pid int) []string {
+	return loadProcessDetailsContext(context.Background(), pid)
+}
+
+func loadProcessDetailsContext(ctx context.Context, pid int) []string {
 	pidText := strconv.Itoa(pid)
 	lines := []string{"PID: " + pidText}
 	raw, err := unix.SysctlRaw("kern.procargs2", pid)
@@ -84,7 +91,7 @@ func loadProcessDetails(pid int) []string {
 		}
 		lines = append(lines, "", "Full command:", strings.Join(quoted, " "), "", "Executable:", path)
 	}
-	cwd := processField("/usr/sbin/lsof", "-a", "-p", pidText, "-d", "cwd", "-Fn")
+	cwd := processField(ctx, "/usr/sbin/lsof", "-a", "-p", pidText, "-d", "cwd", "-Fn")
 	directory := "Unavailable (process exited or access denied)"
 	for _, line := range strings.Split(cwd, "\n") {
 		if strings.HasPrefix(line, "n") {
@@ -92,7 +99,7 @@ func loadProcessDetails(pid int) []string {
 			break
 		}
 	}
-	parent := processField("/bin/ps", "-p", pidText, "-o", "ppid=")
+	parent := processField(ctx, "/bin/ps", "-p", pidText, "-o", "ppid=")
 	return append(lines, "", "Working directory:", directory, "", "Parent PID: "+parent)
 }
 
@@ -123,8 +130,8 @@ func openProcessDetails() {
 	if pid <= 0 {
 		return
 	}
-	processDetails = &processDetailsView{Block: ui.NewBlock(), lines: loadProcessDetails(pid)}
-	processDetails.Title = fmt.Sprintf(" Process %d — Details ", pid)
+	processDetails = &processDetailsView{Block: ui.NewBlock()}
+	processDetails.selectProcess(pid)
 	processDetails.BorderType = ui.BorderDouble
 }
 
@@ -189,14 +196,29 @@ func (view *processDetailsView) Draw(buffer *ui.Buffer) {
 }
 
 func renderProcessDetails(width, height int) bool {
-	if processDetails == nil || width < 3 || height < 3 {
+	prepareProcessDetailsLayout(width, height)
+	if !processDetailsVisible() || width < 3 || height < 3 {
 		return false
 	}
-	modalWidth, modalHeight := min(110, max(3, width-6)), min(30, max(3, height-4))
-	left, top := (width-modalWidth)/2, (height-modalHeight)/2
-	processDetails.SetRect(left, top, left+modalWidth, top+modalHeight)
-	processDetails.TitleBottom = " ↑/↓ Scroll · PgUp/PgDn · Esc Close "
-	ui.Render(mainBlock, grid, processDetails)
+	if processDetailsDocked(width, height) {
+		processDetails.selectProcess(selectedDetailsPID())
+		_, rect := processDetailsRects(width, height)
+		processDetails.SetRect(rect.Min.X, rect.Min.Y, rect.Max.X, rect.Max.Y)
+		processDetails.TitleBottom = " Tab: Details · d: Close "
+		if processDetails.focused {
+			processDetails.TitleBottom = " ↑/↓: Scroll · Tab: List · d: Close "
+		}
+	} else {
+		modalWidth, modalHeight := min(110, max(3, width-6)), min(30, max(3, height-4))
+		left, top := (width-modalWidth)/2, (height-modalHeight)/2
+		processDetails.SetRect(left, top, left+modalWidth, top+modalHeight)
+		processDetails.TitleBottom = " ↑/↓ Scroll · PgUp/PgDn · Esc Close "
+	}
+	if killPending {
+		ui.Render(mainBlock, grid, processDetails, confirmModal)
+	} else {
+		ui.Render(mainBlock, grid, processDetails)
+	}
 	return true
 }
 
@@ -206,7 +228,7 @@ func handleProcessDetailsKey(key string) bool {
 	}
 	switch key {
 	case "<Escape>", "q":
-		processDetails = nil
+		closeProcessDetails()
 	case "<Down>", "j", "<MouseWheelDown>":
 		processDetails.offset++
 	case "<Up>", "k", "<MouseWheelUp>":
@@ -224,20 +246,27 @@ func handleProcessDetailsKey(key string) bool {
 }
 
 func handleProcessDetailsEvent(key string) bool {
-	if key == "<C-c>" {
-		return false
-	}
-	if handleProcessDetailsKey(key) {
-		return true
-	}
-	if key != "d" || showHelp || killPending || searchMode {
+	if key == "<C-c>" || showHelp || killPending || searchMode {
 		return false
 	}
 	if currentConfig.DefaultLayout == LayoutInfo || currentConfig.DefaultLayout == LayoutFan {
 		return false
 	}
-	openProcessDetails()
-	return true
+	if key == "d" {
+		if processDetails == nil {
+			openProcessDetails()
+		} else {
+			closeProcessDetails()
+		}
+		return true
+	}
+	if processDetails == nil {
+		return false
+	}
+	if !processDetailsDocked(GetCachedTerminalDimensions()) {
+		return handleProcessDetailsKey(key)
+	}
+	return handleDockedDetailsKey(key)
 }
 
 func handleProcessDetailsKeyboardEvent(key string) bool {

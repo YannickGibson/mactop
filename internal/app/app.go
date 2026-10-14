@@ -426,7 +426,7 @@ func updateHelpText() {
 		updateInterval,
 	)
 
-	fullText += "\n  d: Inspect selected process (full command, executable, working directory)\n"
+	fullText += "\n  d: Toggle process details (wide: docked; small: popup). Tab: list/details focus\n"
 	lines := strings.Split(fullText, "\n")
 	_, termHeight := GetCachedTerminalDimensions()
 
