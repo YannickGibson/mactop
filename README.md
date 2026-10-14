@@ -355,6 +355,7 @@ Use the following keys to interact with the application while its running:
 - `e`: On the ports layout, toggle external-only filter.
 - `+` or `=`: Increase update interval (slower updates).
 - `-`: Decrease update interval (faster updates).
+- `d`: Inspect the selected process: full command, executable path, working directory, PID and parent PID. Scroll with arrow keys, `j`/`k`, Page Up/Page Down or the mouse wheel; press Escape to close.
 - `F9`: Kill the currently selected process (pauses updates while selecting).
 - `Arrow Keys` or `h/j/k/l`: Navigate the process list and select columns.
 - `g` / `G`: Jump to the top or bottom of the process list.

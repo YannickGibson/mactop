@@ -126,6 +126,9 @@ func updateLayout(w, h int) {
 
 func drawScreen(w, h int) {
 	ui.Clear()
+	if renderProcessDetails(w, h) {
+		return
+	}
 	if w > 2 && h > 2 {
 		if killPending {
 			ui.Render(mainBlock, grid, confirmModal)
@@ -345,6 +348,11 @@ func handleInfoFanScroll(direction int) {
 
 func handleGenericMouseEvent(e ui.Event) {
 	renderMutex.Lock()
+	if handleProcessDetailsKey(e.ID) {
+		drawScreen(GetCachedTerminalDimensions())
+		renderMutex.Unlock()
+		return
+	}
 
 	if showHelp {
 		switch e.ID {
@@ -388,7 +396,9 @@ func handleEvents(done chan struct{}, uiEvents <-chan ui.Event) {
 		case ui.ResizeEvent:
 			handleResizeEvent(e)
 		case ui.KeyboardEvent:
-			handleKeyboardEvent(e, done)
+			if !handleProcessDetailsKeyboardEvent(e.ID) {
+				handleKeyboardEvent(e, done)
+			}
 		case ui.MouseEvent:
 			handleGenericMouseEvent(e)
 		}
